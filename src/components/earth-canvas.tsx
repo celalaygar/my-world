@@ -2,8 +2,10 @@
 
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Stars, useTexture } from "@react-three/drei";
-import { useRef } from "react";
+import { motion } from "framer-motion";
+import { useRef, useState } from "react";
 import * as THREE from "three";
+import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 
 const TEXTURES_BASE_URL =
   "https://cdn.apewebapps.com/threejs/168/examples/textures/planets";
@@ -12,6 +14,9 @@ const EARTH_DAY_MAP_URL = `${TEXTURES_BASE_URL}/earth_day_4096.jpg`;
 const EARTH_NORMAL_MAP_URL = `${TEXTURES_BASE_URL}/earth_normal_2048.jpg`;
 const EARTH_DISPLACEMENT_ROUGHNESS_URL = `${TEXTURES_BASE_URL}/earth_bump_roughness_clouds_4096.jpg`;
 const EARTH_CLOUDS_MAP_URL = `${TEXTURES_BASE_URL}/earth_clouds_2048.png`;
+
+const MIN_DISTANCE = 1.5;
+const MAX_DISTANCE = 10;
 
 function EarthMesh() {
   const earthRef = useRef<THREE.Mesh>(null);
@@ -63,7 +68,11 @@ function EarthMesh() {
   );
 }
 
-function EarthScene() {
+function EarthScene({
+  controlsRef,
+}: {
+  controlsRef: React.RefObject<OrbitControlsImpl | null>;
+}) {
   return (
     <>
       <color attach="background" args={["#00010a"]} />
@@ -77,17 +86,43 @@ function EarthScene() {
       />
       <EarthMesh />
       <OrbitControls
+        ref={controlsRef}
         enableZoom
         enableRotate
         enablePan={false}
-        minDistance={1.5}
-        maxDistance={10}
+        minDistance={MIN_DISTANCE}
+        maxDistance={MAX_DISTANCE}
       />
     </>
   );
 }
 
 export default function EarthCanvas() {
+  const controlsRef = useRef<OrbitControlsImpl | null>(null);
+  const [isPlacingMarker, setIsPlacingMarker] = useState(false);
+
+  const zoomBy = (multiplier: number) => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+
+    const camera = controls.object as THREE.PerspectiveCamera;
+    const target = controls.target.clone();
+
+    const dir = camera.position.clone().sub(target);
+    const currentDist = dir.length();
+    if (currentDist === 0) return;
+
+    const nextDist = THREE.MathUtils.clamp(
+      currentDist * multiplier,
+      MIN_DISTANCE,
+      MAX_DISTANCE
+    );
+
+    dir.setLength(nextDist);
+    camera.position.copy(target.add(dir));
+    controls.update();
+  };
+
   return (
     <div className="relative h-full w-full bg-zinc-900 rounded-xl overflow-hidden">
       <Canvas
@@ -95,8 +130,45 @@ export default function EarthCanvas() {
         gl={{ antialias: true, alpha: true }}
         dpr={[1, 2]}
       >
-        <EarthScene />
+        <EarthScene controlsRef={controlsRef} />
       </Canvas>
+
+      <div className="pointer-events-none fixed bottom-4 left-4 z-50 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <motion.button
+          type="button"
+          className="pointer-events-auto rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm font-medium text-white shadow-lg backdrop-blur transition focus:outline-none focus:ring-2 focus:ring-white/30"
+          whileHover={{ scale: 1.03 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => zoomBy(0.9)}
+        >
+          Zoom In
+        </motion.button>
+
+        <motion.button
+          type="button"
+          className="pointer-events-auto rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm font-medium text-white shadow-lg backdrop-blur transition focus:outline-none focus:ring-2 focus:ring-white/30"
+          whileHover={{ scale: 1.03 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => zoomBy(1.1)}
+        >
+          Zoom Out
+        </motion.button>
+
+        <motion.button
+          type="button"
+          className={[
+            "pointer-events-auto rounded-lg border px-3 py-2 text-sm font-medium shadow-lg backdrop-blur transition focus:outline-none focus:ring-2 focus:ring-white/30",
+            isPlacingMarker
+              ? "border-amber-300/40 bg-amber-400/20 text-amber-50"
+              : "border-white/15 bg-white/10 text-white",
+          ].join(" ")}
+          whileHover={{ scale: 1.03 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => setIsPlacingMarker((v) => !v)}
+        >
+          Add Marker
+        </motion.button>
+      </div>
     </div>
   );
 }
