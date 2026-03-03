@@ -1,27 +1,80 @@
 "use client";
 
-import { Canvas } from "@react-three/fiber";
-import { OrbitControls, useTexture } from "@react-three/drei";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { OrbitControls, Stars, useTexture } from "@react-three/drei";
+import { useRef } from "react";
+import * as THREE from "three";
 
-const EARTH_TEXTURE_URL =
-  "https://upload.wikimedia.org/wikipedia/commons/c/c3/Solarsystemscope_texture_2k_earth_daymap.jpg";
+const TEXTURES_BASE_URL =
+  "https://cdn.apewebapps.com/threejs/168/examples/textures/planets";
+
+const EARTH_DAY_MAP_URL = `${TEXTURES_BASE_URL}/earth_day_4096.jpg`;
+const EARTH_NORMAL_MAP_URL = `${TEXTURES_BASE_URL}/earth_normal_2048.jpg`;
+const EARTH_DISPLACEMENT_ROUGHNESS_URL = `${TEXTURES_BASE_URL}/earth_bump_roughness_clouds_4096.jpg`;
+const EARTH_CLOUDS_MAP_URL = `${TEXTURES_BASE_URL}/earth_clouds_2048.png`;
 
 function EarthMesh() {
-  const [colorMap] = useTexture([EARTH_TEXTURE_URL]);
+  const earthRef = useRef<THREE.Mesh>(null);
+  const cloudsRef = useRef<THREE.Mesh>(null);
+
+  const [dayMap, normalMap, displacementRoughnessMap, cloudsMap] = useTexture([
+    EARTH_DAY_MAP_URL,
+    EARTH_NORMAL_MAP_URL,
+    EARTH_DISPLACEMENT_ROUGHNESS_URL,
+    EARTH_CLOUDS_MAP_URL,
+  ]);
+
+  // Ensure correct colors for the day (albedo) texture.
+  dayMap.colorSpace = THREE.SRGBColorSpace;
+  dayMap.anisotropy = 8;
+
+  useFrame((_, delta) => {
+    if (earthRef.current) earthRef.current.rotation.y += delta * 0.08;
+    if (cloudsRef.current) cloudsRef.current.rotation.y += delta * 0.11;
+  });
 
   return (
-    <mesh>
-      <sphereGeometry args={[1, 64, 64]} />
-      <meshStandardMaterial map={colorMap} metalness={0.1} roughness={0.7} />
-    </mesh>
+    <group>
+      <mesh ref={earthRef}>
+        <sphereGeometry args={[1, 256, 256]} />
+        <meshStandardMaterial
+          map={dayMap}
+          normalMap={normalMap}
+          displacementMap={displacementRoughnessMap}
+          displacementScale={0.03}
+          roughnessMap={displacementRoughnessMap}
+          roughness={0.9}
+          metalness={0}
+        />
+      </mesh>
+
+      <mesh ref={cloudsRef} scale={1.012}>
+        <sphereGeometry args={[1, 128, 128]} />
+        <meshStandardMaterial
+          map={cloudsMap}
+          transparent
+          opacity={0.45}
+          depthWrite={false}
+          roughness={1}
+          metalness={0}
+        />
+      </mesh>
+    </group>
   );
 }
 
 function EarthScene() {
   return (
     <>
-      <ambientLight intensity={0.4} />
-      <directionalLight position={[5, 3, 5]} intensity={1.2} />
+      <color attach="background" args={["#00010a"]} />
+      <Stars radius={120} depth={60} count={7000} factor={4} fade speed={0.5} />
+
+      <ambientLight intensity={0.15} />
+      <directionalLight
+        position={[10, 3, 10]}
+        intensity={2.2}
+        color={"#fff5e1"}
+      />
       <EarthMesh />
       <OrbitControls
         enableZoom
