@@ -242,7 +242,7 @@ export default function EarthCanvas() {
           className="pointer-events-auto rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm font-medium text-white shadow-lg backdrop-blur transition focus:outline-none focus:ring-2 focus:ring-white/30"
           whileHover={{ scale: 1.03 }}
           whileTap={{ scale: 0.98 }}
-          onClick={() => zoomBy(0.9)}
+          onClick={() => zoomBy(0.1)}
         >
           Zoom In
         </motion.button>
