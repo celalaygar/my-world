@@ -33,11 +33,63 @@ const PIN_RING_PULSE_MAX = 1.15;
 const PIN_RED = "#dc2626";
 const PIN_WHITE = "#fafafa";
 
+// Zoom animation
+const ZOOM_DURATION_MS = 1200;
+
+// Distance-based marker scale: keep markers visible at all zoom levels
+const MARKER_SCALE_REF_DISTANCE = 2.5; // distance at which scale = 1
+const MARKER_SCALE_MIN = 0.5;
+const MARKER_SCALE_MAX = 2.2;
+
 type MarkerData = {
   id: string;
   position: [number, number, number]; // stored in Earth's local space
   color?: string;
 };
+
+type ZoomAnimationState = {
+  targetDist: number;
+  startDist: number;
+  startTime: number;
+  duration: number;
+};
+
+function easeInOutCubic(t: number): number {
+  return t * t * (3 - 2 * t);
+}
+
+function ZoomAnimator({
+  controlsRef,
+  zoomAnimationRef,
+}: {
+  controlsRef: React.RefObject<OrbitControlsImpl | null>;
+  zoomAnimationRef: React.MutableRefObject<ZoomAnimationState | null>;
+}) {
+  const dirRef = useRef(new THREE.Vector3());
+  const targetRef = useRef(new THREE.Vector3());
+
+  useFrame(() => {
+    const anim = zoomAnimationRef.current;
+    if (!anim || !controlsRef.current) return;
+
+    const camera = controlsRef.current.object as THREE.PerspectiveCamera;
+    const controls = controlsRef.current;
+    const elapsed = performance.now() - anim.startTime;
+    let t = Math.min(1, elapsed / anim.duration);
+    t = easeInOutCubic(t);
+
+    const currentDist = THREE.MathUtils.lerp(anim.startDist, anim.targetDist, t);
+    targetRef.current.copy(controls.target);
+    dirRef.current.subVectors(camera.position, targetRef.current).normalize();
+    dirRef.current.multiplyScalar(currentDist);
+    camera.position.copy(targetRef.current).add(dirRef.current);
+    controls.update();
+
+    if (t >= 1) zoomAnimationRef.current = null;
+  });
+
+  return null;
+}
 
 function cartesianToLatLon(vec: THREE.Vector3): { lat: number; lon: number } {
   const r = vec.length();
@@ -69,6 +121,7 @@ function PinMarker({
 }) {
   const groupRef = useRef<THREE.Group>(null);
   const ringRef = useRef<THREE.Mesh>(null);
+  const worldPosRef = useRef(new THREE.Vector3());
 
   const normal = useMemo(() => {
     const v = new THREE.Vector3(position[0], position[1], position[2]);
@@ -79,6 +132,18 @@ function PinMarker({
   useFrame(({ camera }) => {
     if (!groupRef.current) return;
 
+    // Distance-based scale: larger when zoomed out, smaller when zoomed in
+    groupRef.current.getWorldPosition(worldPosRef.current);
+    const distance = camera.position.distanceTo(worldPosRef.current);
+    const distanceScale =
+      distance / MARKER_SCALE_REF_DISTANCE;
+    const scale = THREE.MathUtils.clamp(
+      distanceScale,
+      MARKER_SCALE_MIN,
+      MARKER_SCALE_MAX
+    );
+    groupRef.current.scale.setScalar(scale);
+
     // Pin stands along surface normal (Y = normal in group space)
     groupRef.current.quaternion.setFromUnitVectors(
       new THREE.Vector3(0, 1, 0),
@@ -86,8 +151,7 @@ function PinMarker({
     );
 
     // Billboard: rotate around normal so pin "front" (+Z) faces camera
-    const pinPos = new THREE.Vector3(position[0], position[1], position[2]);
-    const toCam = new THREE.Vector3().subVectors(camera.position, pinPos);
+    const toCam = new THREE.Vector3().subVectors(camera.position, worldPosRef.current);
     const tangent = toCam.clone().addScaledVector(normal, -toCam.dot(normal));
     if (tangent.lengthSq() < 1e-6) return;
     tangent.normalize();
@@ -250,6 +314,7 @@ function EarthScene({
   onPlaceMarker,
   onRemoveMarker,
   onHoverCoords,
+  zoomAnimationRef,
 }: {
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
   markers: MarkerData[];
@@ -257,10 +322,13 @@ function EarthScene({
   onPlaceMarker: (position: [number, number, number]) => void;
   onRemoveMarker: (id: string) => void;
   onHoverCoords: (coords: { lat: number; lon: number } | null) => void;
+  zoomAnimationRef: React.MutableRefObject<ZoomAnimationState | null>;
 }) {
   return (
     <>
       <color attach="background" args={["#000000"]} />
+
+      <ZoomAnimator controlsRef={controlsRef} zoomAnimationRef={zoomAnimationRef} />
 
       <ambientLight intensity={2} color={"#ffffff"} />
       <hemisphereLight
@@ -290,6 +358,7 @@ function EarthScene({
 
 export default function EarthCanvas() {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
+  const zoomAnimationRef = useRef<ZoomAnimationState | null>(null);
   const [isPlacingMarker, setIsPlacingMarker] = useState(false);
   const [markers, setMarkers] = useState<MarkerData[]>([]);
   const [hoverCoords, setHoverCoords] = useState<{ lat: number; lon: number } | null>(null);
@@ -300,7 +369,6 @@ export default function EarthCanvas() {
 
     const camera = controls.object as THREE.PerspectiveCamera;
     const target = controls.target.clone();
-
     const dir = camera.position.clone().sub(target);
     const currentDist = dir.length();
     if (currentDist === 0) return;
@@ -311,9 +379,12 @@ export default function EarthCanvas() {
       MAX_DISTANCE
     );
 
-    dir.setLength(nextDist);
-    camera.position.copy(target.add(dir));
-    controls.update();
+    zoomAnimationRef.current = {
+      targetDist: nextDist,
+      startDist: currentDist,
+      startTime: performance.now(),
+      duration: ZOOM_DURATION_MS,
+    };
   };
 
   const handlePlaceMarker = (position: [number, number, number]) => {
@@ -339,6 +410,7 @@ export default function EarthCanvas() {
       >
         <EarthScene
           controlsRef={controlsRef}
+          zoomAnimationRef={zoomAnimationRef}
           markers={markers}
           isPlacingMarker={isPlacingMarker}
           onPlaceMarker={handlePlaceMarker}
