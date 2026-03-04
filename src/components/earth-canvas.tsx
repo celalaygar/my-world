@@ -1,7 +1,7 @@
 "use client";
 
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, Stars, useTexture } from "@react-three/drei";
+import { OrbitControls, useTexture } from "@react-three/drei";
 import { motion } from "framer-motion";
 import { useMemo, useRef, useState } from "react";
 import * as THREE from "three";
@@ -260,8 +260,7 @@ function EarthScene({
 }) {
   return (
     <>
-      <color attach="background" args={["#00010a"]} />
-      <Stars radius={120} depth={60} count={7000} factor={4} fade speed={0.5} />
+      <color attach="background" args={["#000000"]} />
 
       <ambientLight intensity={2} color={"#ffffff"} />
       <hemisphereLight
@@ -332,7 +331,7 @@ export default function EarthCanvas() {
   };
 
   return (
-    <div className="relative h-full w-full bg-zinc-900 rounded-xl overflow-hidden">
+    <div className="relative h-full w-full overflow-hidden bg-black">
       <Canvas
         camera={{ position: [0, 0, 2.5], fov: 45 }}
         gl={{ antialias: true, alpha: true }}
@@ -386,7 +385,7 @@ export default function EarthCanvas() {
           </motion.button>
         </div>
 
-        <p className="pointer-events-none mt-1 rounded bg-black/40 px-2 py-1 text-[11px] font-medium text-white/90 backdrop-blur-sm">
+        <p className="pointer-events-none mt-1 text-[11px] font-medium text-white/80">
           {hoverCoords
             ? `Coords: (${hoverCoords.lat.toFixed(2)}, ${hoverCoords.lon.toFixed(
                 2
@@ -395,7 +394,7 @@ export default function EarthCanvas() {
         </p>
 
         {isPlacingMarker ? (
-          <p className="pointer-events-none mt-1 text-[10px] text-amber-100/90">
+          <p className="pointer-events-none mt-1 text-[10px] text-amber-200/80">
             Click the Earth to place a marker
           </p>
         ) : null}
