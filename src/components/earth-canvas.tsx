@@ -428,7 +428,7 @@ export default function EarthCanvas() {
             whileTap={{ scale: 0.95 }}
             onClick={() => zoomBy(0.9)}
           >
-            +
+            <div className="text-2xl">+</div>
           </motion.button>
 
           <motion.button
@@ -438,7 +438,7 @@ export default function EarthCanvas() {
             whileTap={{ scale: 0.95 }}
             onClick={() => zoomBy(1.1)}
           >
-            −
+            <div className="text-2xl">−</div>
           </motion.button>
 
           <motion.button
@@ -453,7 +453,8 @@ export default function EarthCanvas() {
             whileTap={{ scale: 0.95 }}
             onClick={() => setIsPlacingMarker((v) => !v)}
           >
-            •
+            
+            <div className="text-2xl">•</div>
           </motion.button>
         </div>
 
