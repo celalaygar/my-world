@@ -28,11 +28,15 @@ type MarkerData = {
 };
 
 function GlowingMarker({
+  id,
   position,
   color = "#fbbf24",
+  onRemove,
 }: {
+  id: string;
   position: [number, number, number];
   color?: string;
+  onRemove: (id: string) => void;
 }) {
   const markerRef = useRef<THREE.Mesh>(null);
 
@@ -43,7 +47,14 @@ function GlowingMarker({
   });
 
   return (
-    <mesh ref={markerRef} position={position}>
+    <mesh
+      ref={markerRef}
+      position={position}
+      onClick={(e) => {
+        e.stopPropagation();
+        onRemove(id);
+      }}
+    >
       <sphereGeometry args={[MARKER_RADIUS, 24, 24]} />
       <meshStandardMaterial
         color={color}
@@ -61,10 +72,12 @@ function EarthMesh({
   markers,
   isPlacingMarker,
   onPlaceMarker,
+  onRemoveMarker,
 }: {
   markers: MarkerData[];
   isPlacingMarker: boolean;
   onPlaceMarker: (position: [number, number, number]) => void;
+  onRemoveMarker: (id: string) => void;
 }) {
   const earthGroupRef = useRef<THREE.Group>(null);
   const cloudsRef = useRef<THREE.Mesh>(null);
@@ -83,9 +96,15 @@ function EarthMesh({
   const markerMeshes = useMemo(
     () =>
       markers.map((m) => (
-        <GlowingMarker key={m.id} position={m.position} color={m.color} />
+        <GlowingMarker
+          key={m.id}
+          id={m.id}
+          position={m.position}
+          color={m.color}
+          onRemove={onRemoveMarker}
+        />
       )),
-    [markers]
+    [markers, onRemoveMarker]
   );
 
   return (
@@ -144,11 +163,13 @@ function EarthScene({
   markers,
   isPlacingMarker,
   onPlaceMarker,
+  onRemoveMarker,
 }: {
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
   markers: MarkerData[];
   isPlacingMarker: boolean;
   onPlaceMarker: (position: [number, number, number]) => void;
+  onRemoveMarker: (id: string) => void;
 }) {
   return (
     <>
@@ -165,6 +186,7 @@ function EarthScene({
         markers={markers}
         isPlacingMarker={isPlacingMarker}
         onPlaceMarker={onPlaceMarker}
+        onRemoveMarker={onRemoveMarker}
       />
       <OrbitControls
         ref={controlsRef}
@@ -216,6 +238,10 @@ export default function EarthCanvas() {
     setIsPlacingMarker(false);
   };
 
+  const handleRemoveMarker = (id: string) => {
+    setMarkers((prev) => prev.filter((m) => m.id !== id));
+  };
+
   return (
     <div className="relative h-full w-full bg-zinc-900 rounded-xl overflow-hidden">
       <Canvas
@@ -228,6 +254,7 @@ export default function EarthCanvas() {
           markers={markers}
           isPlacingMarker={isPlacingMarker}
           onPlaceMarker={handlePlaceMarker}
+          onRemoveMarker={handleRemoveMarker}
         />
       </Canvas>
 
