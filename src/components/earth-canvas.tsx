@@ -80,11 +80,6 @@ function EarthMesh({
   dayMap.colorSpace = THREE.SRGBColorSpace;
   dayMap.anisotropy = 8;
 
-  useFrame((_, delta) => {
-    if (earthGroupRef.current) earthGroupRef.current.rotation.y += delta * 0.08;
-    if (cloudsRef.current) cloudsRef.current.rotation.y += delta * 0.11;
-  });
-
   const markerMeshes = useMemo(
     () =>
       markers.map((m) => (
@@ -160,11 +155,11 @@ function EarthScene({
       <color attach="background" args={["#00010a"]} />
       <Stars radius={120} depth={60} count={7000} factor={4} fade speed={0.5} />
 
-      <ambientLight intensity={0.15} />
-      <directionalLight
-        position={[10, 3, 10]}
-        intensity={2.2}
-        color={"#fff5e1"}
+      <ambientLight intensity={2} color={"#ffffff"} />
+      <hemisphereLight
+        intensity={1.2}
+        color={"#ffffff"}
+        groundColor={"#ffffff"}
       />
       <EarthMesh
         markers={markers}
