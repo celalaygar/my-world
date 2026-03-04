@@ -20,6 +20,18 @@ const MAX_DISTANCE = 10;
 const EARTH_RADIUS = 1;
 const MARKER_RADIUS = 0.02;
 const MARKER_SURFACE_OFFSET = 0.001;
+const RAD2DEG = 180 / Math.PI;
+
+// Pin marker dimensions (in world units on unit sphere)
+const PIN_CONE_HEIGHT = 0.06;
+const PIN_HEAD_RADIUS = 0.022;
+const PIN_CUTOUT_RADIUS = 0.007;
+const PIN_RING_INNER = 0.018;
+const PIN_RING_OUTER = 0.028;
+const PIN_RING_PULSE_MIN = 0.85;
+const PIN_RING_PULSE_MAX = 1.15;
+const PIN_RED = "#dc2626";
+const PIN_WHITE = "#fafafa";
 
 type MarkerData = {
   id: string;
@@ -27,10 +39,27 @@ type MarkerData = {
   color?: string;
 };
 
-function GlowingMarker({
+function cartesianToLatLon(vec: THREE.Vector3): { lat: number; lon: number } {
+  const r = vec.length();
+  if (r === 0) return { lat: 0, lon: 0 };
+
+  const x = vec.x / r;
+  const y = vec.y / r;
+  const z = vec.z / r;
+
+  const phi = Math.acos(THREE.MathUtils.clamp(y, -1, 1)); // 0 (north pole) .. π (south)
+  const theta = Math.atan2(z, -x); // matches latLonToCartesian mapping
+
+  const lat = 90 - phi * RAD2DEG;
+  const lon = theta * RAD2DEG - 180;
+
+  return { lat, lon };
+}
+
+function PinMarker({
   id,
   position,
-  color = "#fbbf24",
+  color = PIN_RED,
   onRemove,
 }: {
   id: string;
@@ -38,33 +67,76 @@ function GlowingMarker({
   color?: string;
   onRemove: (id: string) => void;
 }) {
-  const markerRef = useRef<THREE.Mesh>(null);
+  const groupRef = useRef<THREE.Group>(null);
+  const ringRef = useRef<THREE.Mesh>(null);
 
-  useFrame(({ clock }) => {
-    if (!markerRef.current) return;
-    const pulse = 1 + Math.sin(clock.getElapsedTime() * 5) * 0.12;
-    markerRef.current.scale.setScalar(pulse);
+  const normal = useMemo(() => {
+    const v = new THREE.Vector3(position[0], position[1], position[2]);
+    v.normalize();
+    return v;
+  }, [position]);
+
+  useFrame(({ camera }) => {
+    if (!groupRef.current) return;
+
+    // Pin stands along surface normal (Y = normal in group space)
+    groupRef.current.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      normal
+    );
+
+    // Billboard: rotate around normal so pin "front" (+Z) faces camera
+    const pinPos = new THREE.Vector3(position[0], position[1], position[2]);
+    const toCam = new THREE.Vector3().subVectors(camera.position, pinPos);
+    const tangent = toCam.clone().addScaledVector(normal, -toCam.dot(normal));
+    if (tangent.lengthSq() < 1e-6) return;
+    tangent.normalize();
+
+    const zAxis = new THREE.Vector3(0, 0, 1).applyQuaternion(groupRef.current.quaternion);
+    const angle = Math.atan2(
+      new THREE.Vector3().crossVectors(zAxis, tangent).dot(normal),
+      zAxis.dot(tangent)
+    );
+    groupRef.current.quaternion.premultiply(
+      new THREE.Quaternion().setFromAxisAngle(normal, angle)
+    );
+
+    if (ringRef.current) {
+      const t = performance.now() * 0.002;
+      const s = PIN_RING_PULSE_MIN + (PIN_RING_PULSE_MAX - PIN_RING_PULSE_MIN) * (0.5 + 0.5 * Math.sin(t));
+      ringRef.current.scale.setScalar(s);
+    }
   });
 
   return (
-    <mesh
-      ref={markerRef}
+    <group
+      ref={groupRef}
       position={position}
       onClick={(e) => {
         e.stopPropagation();
         onRemove(id);
       }}
     >
-      <sphereGeometry args={[MARKER_RADIUS, 24, 24]} />
-      <meshStandardMaterial
-        color={color}
-        emissive={color}
-        emissiveIntensity={2.2}
-        roughness={0.25}
-        metalness={0}
-        toneMapped={false}
-      />
-    </mesh>
+      {/* Teardrop: cone (tip at origin) + spherical head */}
+      <mesh position={[0, PIN_CONE_HEIGHT, 0]} rotation={[Math.PI, 0, 0]}>
+        <coneGeometry args={[PIN_HEAD_RADIUS, PIN_CONE_HEIGHT, 24]} />
+        <meshStandardMaterial color={color} roughness={0.4} metalness={0.1} />
+      </mesh>
+      <mesh position={[0, PIN_CONE_HEIGHT, 0]}>
+        <sphereGeometry args={[PIN_HEAD_RADIUS, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5]} />
+        <meshStandardMaterial color={color} roughness={0.4} metalness={0.1} />
+      </mesh>
+      {/* White circular cutout on the front of the head */}
+      <mesh position={[0, PIN_CONE_HEIGHT, PIN_HEAD_RADIUS + 0.001]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[PIN_CUTOUT_RADIUS, 16]} />
+        <meshBasicMaterial color={PIN_WHITE} side={THREE.DoubleSide} />
+      </mesh>
+      {/* Pulsing ring on the surface under the pin */}
+      <mesh ref={ringRef} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[PIN_RING_INNER, PIN_RING_OUTER, 32]} />
+        <meshBasicMaterial color={color} transparent opacity={0.5} side={THREE.DoubleSide} depthWrite={false} />
+      </mesh>
+    </group>
   );
 }
 
@@ -73,11 +145,13 @@ function EarthMesh({
   isPlacingMarker,
   onPlaceMarker,
   onRemoveMarker,
+  onHoverCoords,
 }: {
   markers: MarkerData[];
   isPlacingMarker: boolean;
   onPlaceMarker: (position: [number, number, number]) => void;
   onRemoveMarker: (id: string) => void;
+  onHoverCoords: (coords: { lat: number; lon: number } | null) => void;
 }) {
   const earthGroupRef = useRef<THREE.Group>(null);
   const cloudsRef = useRef<THREE.Mesh>(null);
@@ -96,11 +170,11 @@ function EarthMesh({
   const markerMeshes = useMemo(
     () =>
       markers.map((m) => (
-        <GlowingMarker
+        <PinMarker
           key={m.id}
           id={m.id}
           position={m.position}
-          color={m.color}
+          color={m.color ?? PIN_RED}
           onRemove={onRemoveMarker}
         />
       )),
@@ -126,6 +200,17 @@ function EarthMesh({
               .multiplyScalar(EARTH_RADIUS + MARKER_SURFACE_OFFSET);
 
             onPlaceMarker([local.x, local.y, local.z]);
+          }}
+          onPointerMove={(e) => {
+            const local = earthGroupRef.current
+              ? earthGroupRef.current.worldToLocal(e.point.clone())
+              : e.point.clone();
+
+            const { lat, lon } = cartesianToLatLon(local);
+            onHoverCoords({ lat, lon });
+          }}
+          onPointerOut={() => {
+            onHoverCoords(null);
           }}
         >
           <sphereGeometry args={[EARTH_RADIUS, 256, 256]} />
@@ -164,12 +249,14 @@ function EarthScene({
   isPlacingMarker,
   onPlaceMarker,
   onRemoveMarker,
+  onHoverCoords,
 }: {
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
   markers: MarkerData[];
   isPlacingMarker: boolean;
   onPlaceMarker: (position: [number, number, number]) => void;
   onRemoveMarker: (id: string) => void;
+  onHoverCoords: (coords: { lat: number; lon: number } | null) => void;
 }) {
   return (
     <>
@@ -187,6 +274,7 @@ function EarthScene({
         isPlacingMarker={isPlacingMarker}
         onPlaceMarker={onPlaceMarker}
         onRemoveMarker={onRemoveMarker}
+        onHoverCoords={onHoverCoords}
       />
       <OrbitControls
         ref={controlsRef}
@@ -205,6 +293,7 @@ export default function EarthCanvas() {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const [isPlacingMarker, setIsPlacingMarker] = useState(false);
   const [markers, setMarkers] = useState<MarkerData[]>([]);
+  const [hoverCoords, setHoverCoords] = useState<{ lat: number; lon: number } | null>(null);
 
   const zoomBy = (multiplier: number) => {
     const controls = controlsRef.current;
@@ -255,49 +344,60 @@ export default function EarthCanvas() {
           isPlacingMarker={isPlacingMarker}
           onPlaceMarker={handlePlaceMarker}
           onRemoveMarker={handleRemoveMarker}
+          onHoverCoords={setHoverCoords}
         />
       </Canvas>
 
-      <div className="pointer-events-none fixed bottom-4 left-4 z-50 flex flex-col gap-2 sm:flex-row sm:items-center">
-        <motion.button
-          type="button"
-          className="pointer-events-auto rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm font-medium text-white shadow-lg backdrop-blur transition focus:outline-none focus:ring-2 focus:ring-white/30"
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => zoomBy(0.1)}
-        >
-          Zoom In
-        </motion.button>
+      <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2">
+        <div className="pointer-events-auto flex flex-col gap-2">
+          <motion.button
+            type="button"
+            className="flex h-10 w-10 items-center justify-center border border-white/40 bg-black/40 text-[10px] font-semibold uppercase tracking-tight text-white shadow-lg backdrop-blur-sm transition focus:outline-none focus:ring-2 focus:ring-white/40"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => zoomBy(0.9)}
+          >
+            +
+          </motion.button>
 
-        <motion.button
-          type="button"
-          className="pointer-events-auto rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm font-medium text-white shadow-lg backdrop-blur transition focus:outline-none focus:ring-2 focus:ring-white/30"
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => zoomBy(1.1)}
-        >
-          Zoom Out
-        </motion.button>
+          <motion.button
+            type="button"
+            className="flex h-10 w-10 items-center justify-center border border-white/40 bg-black/40 text-[10px] font-semibold uppercase tracking-tight text-white shadow-lg backdrop-blur-sm transition focus:outline-none focus:ring-2 focus:ring-white/40"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => zoomBy(1.1)}
+          >
+            −
+          </motion.button>
 
-        <motion.button
-          type="button"
-          className={[
-            "pointer-events-auto rounded-lg border px-3 py-2 text-sm font-medium shadow-lg backdrop-blur transition focus:outline-none focus:ring-2 focus:ring-white/30",
-            isPlacingMarker
-              ? "border-amber-300/40 bg-amber-400/20 text-amber-50"
-              : "border-white/15 bg-white/10 text-white",
-          ].join(" ")}
-          whileHover={{ scale: 1.03 }}
-          whileTap={{ scale: 0.98 }}
-          onClick={() => setIsPlacingMarker((v) => !v)}
-        >
-          Add Marker
-        </motion.button>
+          <motion.button
+            type="button"
+            className={[
+              "flex h-10 w-10 items-center justify-center border text-[10px] font-semibold uppercase tracking-tight shadow-lg backdrop-blur-sm transition focus:outline-none focus:ring-2 focus:ring-white/40",
+              isPlacingMarker
+                ? "border-amber-300/70 bg-amber-400/30 text-amber-50"
+                : "border-white/40 bg-black/40 text-white",
+            ].join(" ")}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setIsPlacingMarker((v) => !v)}
+          >
+            •
+          </motion.button>
+        </div>
+
+        <p className="pointer-events-none mt-1 rounded bg-black/40 px-2 py-1 text-[11px] font-medium text-white/90 backdrop-blur-sm">
+          {hoverCoords
+            ? `Coords: (${hoverCoords.lat.toFixed(2)}, ${hoverCoords.lon.toFixed(
+                2
+              )})`
+            : "Coords: (Lat, Lon)"}
+        </p>
 
         {isPlacingMarker ? (
-          <div className="pointer-events-none text-xs text-white/80 sm:ml-2">
+          <p className="pointer-events-none mt-1 text-[10px] text-amber-100/90">
             Click the Earth to place a marker
-          </div>
+          </p>
         ) : null}
       </div>
     </div>
