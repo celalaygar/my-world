@@ -1,3 +1,4 @@
+// components/earth-canvas.tsx (updated)
 "use client";
 
 import { Canvas, useFrame } from "@react-three/fiber";
@@ -6,6 +7,7 @@ import { motion } from "framer-motion";
 import { useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+import Sidebar from "./sidebar";
 
 const TEXTURES_BASE_URL =
   "https://cdn.apewebapps.com/threejs/168/examples/textures/planets";
@@ -41,7 +43,7 @@ const MARKER_SCALE_REF_DISTANCE = 2.5; // distance at which scale = 1
 const MARKER_SCALE_MIN = 0.5;
 const MARKER_SCALE_MAX = 2.2;
 
-type MarkerData = {
+export type MarkerData = {
   id: string;
   position: [number, number, number]; // stored in Earth's local space
   color?: string;
@@ -362,6 +364,7 @@ export default function EarthCanvas() {
   const [isPlacingMarker, setIsPlacingMarker] = useState(false);
   const [markers, setMarkers] = useState<MarkerData[]>([]);
   const [hoverCoords, setHoverCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const zoomBy = (multiplier: number) => {
     const controls = controlsRef.current;
@@ -419,6 +422,24 @@ export default function EarthCanvas() {
         />
       </Canvas>
 
+      {/* Hamburger menu button */}
+      <button
+        onClick={() => setIsSidebarOpen(true)}
+        className="fixed top-4 left-4 z-30 p-2 rounded-lg bg-black/40 backdrop-blur-sm border border-white/20 text-white hover:bg-white/10 transition-colors"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+
+      {/* Sidebar */}
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        markers={markers}
+        onDeleteMarker={handleRemoveMarker}
+      />
+
       <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2">
         <div className="pointer-events-auto flex flex-col gap-2">
           <motion.button
@@ -438,7 +459,7 @@ export default function EarthCanvas() {
             whileTap={{ scale: 0.95 }}
             onClick={() => zoomBy(1.1)}
           >
-            <div className="text-2xl">−</div>
+            <div className="text-2xl">-</div>
           </motion.button>
 
           <motion.button
@@ -453,7 +474,6 @@ export default function EarthCanvas() {
             whileTap={{ scale: 0.95 }}
             onClick={() => setIsPlacingMarker((v) => !v)}
           >
-            
             <div className="text-2xl">•</div>
           </motion.button>
         </div>
